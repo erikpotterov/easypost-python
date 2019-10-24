@@ -76,6 +76,15 @@ class Error(Exception):
             pass
 
 
+class CommunicationError(Error): pass
+
+
+class AmbiguousCarrierError(Error): pass
+
+
+class APIKeyError(Error): pass
+
+
 def convert_to_easypost_object(response, api_key, parent=None, name=None):
     types = {
         'Address': Address,
@@ -266,7 +275,7 @@ class Requestor(object):
         my_api_key = self._api_key or api_key
 
         if apiKeyRequired and my_api_key is None:
-            raise Error(
+            raise APIKeyError(
                 'No API key provided. Set an API key via "easypost.api_key = \'APIKEY\'. '
                 'Your API keys can be found in your EasyPost dashboard, or you can email us '
                 'at contact@easypost.com for assistance.')
@@ -345,8 +354,8 @@ class Requestor(object):
             http_body = result.text
             http_status = result.status_code
         except Exception as e:
-            raise Error("Unexpected error communicating with EasyPost. If this "
-                        "problem persists please let us know at contact@easypost.com.")
+            raise CommunicationError("Unexpected error communicating with EasyPost. If this "
+                                     "problem persists please let us know at contact@easypost.com.")
         return http_body, http_status
 
     def urlfetch_request(self, method, abs_url, headers, params):
@@ -368,8 +377,8 @@ class Requestor(object):
         try:
             result = urlfetch.fetch(**args)
         except:
-            raise Error("Unexpected error communicating with EasyPost. "
-                        "If this problem persists, let us know at contact@easypost.com.")
+            raise CommunicationError("Unexpected error communicating with EasyPost. "
+                                     "If this problem persists, let us know at contact@easypost.com.")
 
         return result.content, result.status_code
 
@@ -379,10 +388,22 @@ class Requestor(object):
         except (KeyError, TypeError):
             raise Error("Invalid response from API: (%d) %r " % (http_status, http_body), http_status, http_body)
 
+        exc_msg_map = {
+            AmbiguousCarrierError: 'The tracking number could belong to more than one carrier. Please specify carrier when creating your tracker.',
+        }
+
         try:
-            raise Error(error.get('message', ''), http_status, http_body)
+            msg = error.get('message')
         except AttributeError:
-            raise Error(error, http_status, http_body)
+            msg = error
+
+        try:
+            # invert the map
+            exc_cls = { v: k for k, v in exc_msg_map.items() }[msg]
+        except KeyError:
+            exc_cls = Error
+
+        raise exc_cls(msg, http_status, http_body)
 
 
 class EasyPostObject(object):
